@@ -1,0 +1,55 @@
+{
+  "name": "muse-panel",
+  "productName": "Muse Panel",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Manage multiple Muse (muse.ai) accounts side by side in one window",
+  "main": "./out/main/index.js",
+  "author": "xiezhaoye",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "start": "electron-vite preview",
+    "dist": "electron-vite build && electron-builder --mac --arm64",
+    "release": "node landing/release.mjs"
+  },
+  "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "electron": "^44.7.2",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^6.0.0",
+    "typescript": "^5",
+    "vite": "^8.3.4"
+  },
+  "build": {
+    "appId": "site.xiezhaoye.muse-panel",
+    "productName": "Muse Panel",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "artifactName": "MusePanel_${version}_arm64.${ext}"
+    }
+  }
+}

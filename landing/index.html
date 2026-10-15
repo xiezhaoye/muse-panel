@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Muse Panel · 多 Muse 账号统一面板</title>
+<meta name="description" content="Muse Panel 是一款 macOS 应用：把多个 Muse 账号并排放在同一个窗口里，登录互不干扰，并用分组来整理账号。">
+<link rel="icon" type="image/svg+xml" href="logo.svg">
+<meta property="og:title" content="Muse Panel">
+<meta property="og:description" content="在一个窗口里同时使用多个 Muse 账号 · Use several Muse accounts side by side in one window.">
+<meta property="og:image" content="https://musepanel.xiezhaoye.site/screenshot.jpg">
+<style>
+:root {
+  --bg: #f6f6f4; --card: #ffffff; --text: #1f1f1d; --muted: #5f5f59;
+  --line: #e2e2dd; --accent: #2f6fde; --btn: #1f1f1d; --btn-text: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615; --card: #20201e; --text: #ececea; --muted: #a3a39c;
+    --line: #34342f; --btn: #ececea; --btn-text: #161615;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.7 -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+main { max-width: 960px; margin: 0 auto; padding: 56px 16px 40px; }
+.lang { position: absolute; top: 16px; right: 16px; display: flex; gap: 4px; }
+.lang button {
+  border: 1px solid var(--line); background: var(--card); color: var(--muted);
+  border-radius: 8px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer;
+}
+.lang button[aria-pressed="true"] { color: var(--text); border-color: var(--text); }
+.hero { text-align: center; }
+.hero img { width: 88px; height: 88px; }
+h1 { font-size: 42px; line-height: 1.2; margin: 16px 0 8px; letter-spacing: -0.5px; }
+.tagline { font-size: 21px; margin: 0 0 8px; }
+.sub { color: var(--muted); margin: 0 auto 28px; max-width: 560px; }
+.download {
+  display: inline-flex; align-items: center; gap: 10px; padding: 14px 28px;
+  background: var(--btn); color: var(--btn-text); border-radius: 12px;
+  font-size: 18px; font-weight: 600; text-decoration: none;
+}
+.download:hover { opacity: .9; }
+.download:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.meta { color: var(--muted); font-size: 14px; margin: 12px 0 0; }
+.links { margin: 14px 0 0; font-size: 15px; }
+.links a { color: var(--text); }
+.shot { margin: 44px 0 0; }
+.shot img {
+  display: block; width: 100%; height: auto; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--card);
+  box-shadow: 0 14px 44px rgba(0, 0, 0, .16);
+}
+figcaption { color: var(--muted); font-size: 14px; text-align: center; margin: 10px 0 0; }
+.features { display: grid; gap: 14px; margin: 44px 0 0; padding: 0; list-style: none; }
+@media (min-width: 720px) { .features { grid-template-columns: 1fr 1fr; } }
+.features > li { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
+.features h2 { font-size: 18px; margin: 0 0 6px; }
+.features ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 15px; }
+.notice { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; margin: 28px 0 0; }
+.notice h2 { font-size: 17px; margin: 0 0 6px; }
+.notice ol { margin: 0; padding-left: 20px; color: var(--muted); font-size: 15px; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; background: var(--line); padding: 2px 6px; border-radius: 6px; word-break: break-all; }
+footer { color: var(--muted); font-size: 13px; text-align: center; margin: 40px 0 0; }
+footer a { color: var(--muted); }
+html[lang="en"] [data-zh], html[lang="zh-CN"] [data-en] { display: none; }
+</style>
+</head>
+<body>
+<div class="lang" role="group" aria-label="Language">
+  <button type="button" data-set-lang="zh-CN" aria-pressed="true">中文</button>
+  <button type="button" data-set-lang="en" aria-pressed="false">English</button>
+</div>
+<main>
+  <section class="hero">
+    <img src="logo.svg" alt="Muse Panel">
+    <h1>Muse Panel</h1>
+    <p class="tagline" data-zh>在一个窗口里同时使用多个 Muse 账号</p>
+    <p class="tagline" data-en>Use several Muse accounts side by side in one window</p>
+    <p class="sub" data-zh>macOS 桌面应用。每个账号一列、登录互不干扰，用分组整理账号，额度一眼看清。</p>
+    <p class="sub" data-en>A macOS app. One column per account, each with its own separate login, organized into groups, with each account's quota in view.</p>
+    <a class="download" href="{{DMG_URL}}" download>
+      <span data-zh>下载 Muse Panel {{VERSION}}</span><span data-en>Download Muse Panel {{VERSION}}</span>
+    </a>
+    <p class="meta" data-zh>适用于 Apple 芯片（M1 及更新）的 Mac · {{DMG_SIZE}} MB</p>
+    <p class="meta" data-en>For Apple silicon Macs (M1 and later) · {{DMG_SIZE}} MB</p>
+    <p class="links">
+      <a href="https://github.com/xiezhaoye/muse-panel">GitHub</a> ·
+      <a href="https://github.com/xiezhaoye/muse-panel/releases/latest"><span data-zh>所有版本</span><span data-en>All releases</span></a> ·
+      <a href="https://github.com/xiezhaoye/muse-panel/issues"><span data-zh>反馈问题</span><span data-en>Report an issue</span></a>
+    </p>
+  </section>
+
+  <figure class="shot">
+    <img src="screenshot.jpg" width="2400" height="1356" alt="Muse Panel：左侧分组栏，右侧四个 Muse 账号并排显示">
+    <figcaption data-zh>左侧分组栏 · 右侧多个账号并排，每列显示账号名和额度</figcaption>
+    <figcaption data-en>Group sidebar on the left · accounts side by side, each column showing its name and quota</figcaption>
+  </figure>
+
+  <ul class="features">
+    <li>
+      <h2 data-zh>一个面板管理多个账号</h2>
+      <h2 data-en>Manage multiple accounts in one panel</h2>
+      <ul data-zh>
+        <li>每个账号一列，同时看到、同时使用</li>
+        <li>登录互相隔离，只需登录一次，重启也不掉线</li>
+        <li>账号名居中大字显示，点 ✎ 即可改名</li>
+        <li>每周额度进度条、重置日期和不过期额度一眼看清</li>
+        <li>⚙ 菜单：刷新、休眠以释放内存、删除</li>
+      </ul>
+      <ul data-en>
+        <li>One column per account, all visible and usable at once</li>
+        <li>Separate logins: sign in once and stay signed in across restarts</li>
+        <li>Account names shown large and centered; click ✎ to rename</li>
+        <li>Weekly quota bar, reset date and non-expiring quota at a glance</li>
+        <li>⚙ menu: reload, sleep to free memory, or remove</li>
+      </ul>
+    </li>
+    <li>
+      <h2 data-zh>方便地分组、编辑组</h2>
+      <h2 data-en>Group and edit groups easily</h2>
+      <ul data-zh>
+        <li>左侧分组栏，点击即可切换</li>
+        <li>右键组名即可编辑或删除，删除前会确认</li>
+        <li>拖动组名排序；把列头拖到组名上即可移组</li>
+        <li>每个组有固定颜色的竖条，一眼区分</li>
+        <li>分组栏可拖宽，也能收起成一条细条</li>
+      </ul>
+      <ul data-en>
+        <li>Group sidebar on the left; click a group to switch</li>
+        <li>Right-click a group to rename or delete it, with confirmation</li>
+        <li>Drag groups to reorder; drop a column header on a group to move the account</li>
+        <li>A fixed color bar on each group makes them easy to tell apart</li>
+        <li>Resize the sidebar or collapse it into a thin strip</li>
+      </ul>
+    </li>
+  </ul>
+
+  <section class="notice">
+    <h2 data-zh>第一次打开</h2>
+    <h2 data-en>First launch</h2>
+    <ol data-zh>
+      <li>打开下载的 <code>.dmg</code>，把 Muse Panel 拖进「应用程序」。</li>
+      <li>安装包未经 Apple 公证：在 Finder 里右键 Muse Panel →「打开」，再点「打开」；或到「系统设置 → 隐私与安全性」点「仍要打开」。</li>
+      <li>也可以在终端执行：<code>xattr -dr com.apple.quarantine "/Applications/Muse Panel.app"</code></li>
+    </ol>
+    <ol data-en>
+      <li>Open the downloaded <code>.dmg</code> and drag Muse Panel into Applications.</li>
+      <li>The app isn't notarized by Apple: right-click Muse Panel in Finder → Open and confirm, or use System Settings → Privacy &amp; Security → Open Anyway.</li>
+      <li>Or run: <code>xattr -dr com.apple.quarantine "/Applications/Muse Panel.app"</code></li>
+    </ol>
+  </section>
+
+  <footer>
+    <p data-zh>Muse Panel 是个人开发的第三方工具，与 Meta 及 Muse 官方无关。所有数据只保存在你的电脑上。MIT 协议开源。</p>
+    <p data-en>Muse Panel is an independent third-party tool, not affiliated with Meta or Muse. All data stays on your Mac. Open source under the MIT license.</p>
+  </footer>
+</main>
+<script>
+(function () {
+  var root = document.documentElement;
+  function set(lang) {
+    root.lang = lang;
+    document.querySelectorAll('[data-set-lang]').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.getAttribute('data-set-lang') === lang));
+    });
+    try { localStorage.setItem('musepanel-lang', lang); } catch (e) {}
+  }
+  var saved = null;
+  try { saved = localStorage.getItem('musepanel-lang'); } catch (e) {}
+  set(saved || (/^zh/i.test(navigator.language || '') ? 'zh-CN' : 'en'));
+  document.querySelectorAll('[data-set-lang]').forEach(function (b) {
+    b.addEventListener('click', function () { set(b.getAttribute('data-set-lang')); });
+  });
+})();
+</script>
+</body>
+</html>

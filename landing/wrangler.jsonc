@@ -1,0 +1,9 @@
+{
+  // Muse Panel landing page: static assets on Cloudflare Workers, served at
+  // musepanel.xiezhaoye.site. Build with `node build.mjs` first.
+  "name": "musepanel-site",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./dist" },
+  "routes": [{ "pattern": "musepanel.xiezhaoye.site", "custom_domain": true }],
+  "workers_dev": false
+}
