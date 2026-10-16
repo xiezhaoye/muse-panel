@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppConfig } from '../shared/types'
+import type { AppConfig, Usage } from '../shared/types'
 
-const CHANNELS = ['config:changed', 'usage:updated'] as const
+const CHANNELS = ['config:changed', 'usage:state'] as const
 type Channel = (typeof CHANNELS)[number]
 
 const api = {
@@ -9,10 +9,8 @@ const api = {
   setConfig: (c: unknown) => ipcRenderer.invoke('config:set', c),
   configPath: () => ipcRenderer.invoke('config:path'),
   musePreload: () => ipcRenderer.invoke('paths:musePreload'),
-  refreshUsage: (id: string) => ipcRenderer.invoke('usage:refresh', id),
-  saveUsage: (id: string, raw: string, bars: number[]) => ipcRenderer.invoke('usage:save', id, raw, bars),
-  logUsage: (entry: Record<string, unknown>) => ipcRenderer.send('usage:log', entry),
-  sendKey: (wcId: number, keyCode: string, modifiers: ('meta' | 'shift')[] = []) => ipcRenderer.invoke('webview:key', wcId, keyCode, modifiers),
+  refreshUsage: (id: string): Promise<{ usage: Usage | null; error: string | null; ms: number }> => ipcRenderer.invoke('usage:refresh', id),
+  usageQueueState: (): Promise<Record<string, 'queued' | 'running' | 'idle'>> => ipcRenderer.invoke('usage:queueState'),
   clearAccountData: (id: string) => ipcRenderer.invoke('account:clearData', id),
   confirm: (message: string) => ipcRenderer.invoke('dialog:confirm', message),
   notify: (title: string, body: string) => ipcRenderer.send('notify', title, body),

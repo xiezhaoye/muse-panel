@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { Account, AccountStatus, Rules } from '../../../shared/types'
-import { keyDiag, registry, WebviewEl } from '../webviewRegistry'
+import { registry, WebviewEl } from '../webviewRegistry'
 import { IconGear, IconGrip, IconMoon, IconPencil, IconRefresh, IconTrash, IconWork } from './icons'
 
 interface Props {
@@ -16,35 +16,27 @@ interface Props {
   rules: Rules
   onChange: (mut: (a: Account) => void) => void
   onDelete: () => void
-  onRefreshUsage: () => Promise<{ kind: 'ok' | 'same' | 'error'; text: string }>
+  usageState: 'queued' | 'running' | undefined
+  usageFlash: UsageFlash | null
+  onRefreshUsage: () => void
 }
 
-// 头部尽量紧凑：一行"每周额度：52%已用 ↻"，下面一条进度条
-function WeeklyUsage({ a, onRefresh }: { a: Account; onRefresh: Props['onRefreshUsage'] }): React.JSX.Element {
-  const u = a.usage
-  // 点刷新后：图标转圈 → 结果在右侧显示 3 秒（已更新 / 已是最新 / 失败原因）
-  const [busy, setBusy] = useState(false)
-  const [flash, setFlash] = useState<{ kind: string; text: string } | null>(null)
-  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const refresh = async (): Promise<void> => {
-    if (busy) return
-    setBusy(true)
-    setFlash(null)
-    try {
-      const r = await onRefresh()
-      setFlash(r)
-    } catch (e) {
-      setFlash({ kind: 'error', text: `刷新失败：${String(e)}` })
-    } finally {
-      setBusy(false)
-      if (flashTimer.current) clearTimeout(flashTimer.current)
-      flashTimer.current = setTimeout(() => setFlash(null), 3000)
-    }
-  }
+export type UsageFlash = { kind: 'ok' | 'same' | 'error'; text: string }
+
+// 头部尽量紧凑：一行"每周额度：52%已用 ↻ …… 重置日期"，下面一条进度条。
+// 刷新状态由队列统一驱动：排队中 / 刷新中（转圈）/ 结果（显示 3 秒）
+function WeeklyUsage(p: {
+  a: Account
+  state: 'queued' | 'running' | undefined
+  flash: UsageFlash | null
+  onRefresh: () => void
+}): React.JSX.Element {
+  const u = p.a.usage
   const used = u.weeklyPercent == null ? null : Math.max(0, Math.min(100, u.weeklyPercent))
   const tip = [u.resetText ? `${u.resetText}重置` : '', u.updatedAt ? `更新于 ${new Date(u.updatedAt).toLocaleString('zh-CN')}` : '']
     .filter(Boolean)
     .join('，')
+  const busy = !!p.state
   return (
     <div className="weekly" title={tip}>
       <div className="weekly-line">
@@ -55,13 +47,20 @@ function WeeklyUsage({ a, onRefresh }: { a: Account; onRefresh: Props['onRefresh
         ) : (
           <span className="muted">{u.error ? `额度：${u.error}` : '额度：点右侧按钮刷新'}</span>
         )}
-        <button className={`icon urefresh ${busy ? 'spinning' : ''}`} title="刷新额度" disabled={busy} onClick={() => void refresh()}>
+        <button
+          className={`icon urefresh ${p.state === 'running' ? 'spinning' : ''}`}
+          title={busy ? '已在刷新队列中' : '刷新额度'}
+          disabled={busy}
+          onClick={p.onRefresh}
+        >
           <IconRefresh size={15} />
         </button>
-        {busy ? (
+        {p.state === 'running' ? (
           <span className="reset">刷新中…</span>
-        ) : flash ? (
-          <span className={`reset flash ${flash.kind}`}>{flash.text}</span>
+        ) : p.state === 'queued' ? (
+          <span className="reset">排队中…</span>
+        ) : p.flash ? (
+          <span className={`reset flash ${p.flash.kind}`}>{p.flash.text}</span>
         ) : (
           u.resetText && <span className="reset">{u.resetText}重置</span>
         )}
@@ -128,22 +127,7 @@ export function AccountColumn(p: Props): React.JSX.Element {
         registry.setReady(a.id, true)
         wv.send('muse:rules', rulesRef.current)
       } else if (channel === 'muse:status') registry.setStatus(a.id, args[0] as AccountStatus)
-      else if (channel === 'muse:injected' || channel === 'muse:usage') registry.resolveInjected(args[0] as { id: string; ok: boolean; error?: string })
-      else if (channel === 'muse:usageLate') {
-        const l = args[0] as { lateOpenMs: number | null }
-        window.panel.logUsage({ account: a.name, event: 'late-check', lateOpenMs: l.lateOpenMs, note: l.lateOpenMs ? '设置迟到打开，已静默关闭' : '之后也没有打开' })
-      } else if (channel === 'muse:trustedKey') {
-        const k = args[0] as { id: string; key: string; modifiers: ('meta' | 'shift')[] }
-        // 先把键盘焦点交给这一列的页面，真实按键才会送进去；之后还原焦点
-        const prev = document.activeElement as HTMLElement | null
-        const panelHadFocus = document.hasFocus()
-        wv.focus()
-        keyDiag.set(a.id, { key: k.key, panelHadFocus, webviewFocused: document.activeElement === wv })
-        void window.panel
-          .sendKey(wv.getWebContentsId(), k.key, k.modifiers)
-          .then(() => wv.send('muse:trustedKeyDone', k.id))
-          .finally(() => setTimeout(() => prev?.focus?.(), 50))
-      }
+      else if (channel === 'muse:injected') registry.resolveInjected(args[0] as { id: string; ok: boolean; error?: string })
     }
     const onDomReady = (): void => {
       registry.setReady(a.id, true)
@@ -225,7 +209,7 @@ export function AccountColumn(p: Props): React.JSX.Element {
             </button>
           </div>
         </div>
-        <WeeklyUsage a={a} onRefresh={p.onRefreshUsage} />
+        <WeeklyUsage a={a} state={p.usageState} flash={p.usageFlash} onRefresh={p.onRefreshUsage} />
         {s?.lastActivity && (
           <div className="row4">
             <span className="activity" title="右侧状态面板的最新动态">

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { TAB_COLORS, type Tab } from '../../../shared/types'
-import { IconPencil, IconTrash } from './icons'
+import { IconPencil, IconRefresh, IconTrash } from './icons'
 
 
 interface Props {
@@ -13,6 +13,7 @@ interface Props {
   onRename: (id: string, name: string) => void
   onAdd: () => void
   onDelete: (id: string) => void
+  onRefreshGroup: (id: string) => void
 }
 
 // 组既是可拖拽排序的项（id = tab:<id>），也是账号列的落点（把列头拖到组上 = 移组）
@@ -130,6 +131,19 @@ export function TabBar(p: Props): React.JSX.Element {
               <IconPencil size={16} />
             </span>
             <span className="mi-main">编辑</span>
+          </button>
+          <button
+            className="menu-item"
+            onClick={() => {
+              const id = ctx.id
+              setCtx(null)
+              p.onRefreshGroup(id)
+            }}
+          >
+            <span className="mi-icon">
+              <IconRefresh size={16} />
+            </span>
+            <span className="mi-main">刷新本组额度</span>
           </button>
           <button
             className="menu-item danger"

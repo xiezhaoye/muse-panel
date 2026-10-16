@@ -1,5 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, session, shell, webContents } from 'electron'
-import { appendFileSync, mkdirSync } from 'node:fs'
+import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, session, shell } from 'electron'
 import { join } from 'node:path'
 import {
   configPath,
@@ -11,7 +10,7 @@ import {
   setConfig,
   updateConfig
 } from './config'
-import { refreshUsage, saveUsage } from './usage'
+import { initUsageQueue, refreshUsage, usageQueueState } from './usage'
 import type { AppConfig } from '../shared/types'
 
 // UA 归一化：去掉 Electron/x.y.z 和应用名，网站看到的就是普通 Chrome。
@@ -135,23 +134,7 @@ function registerIpc(): void {
   ipcMain.handle('config:path', () => configPath())
   ipcMain.handle('paths:musePreload', () => `file://${musePreloadPath()}`)
   ipcMain.handle('usage:refresh', (_e, id: string) => refreshUsage(id))
-  // 额度刷新诊断日志：~/Library/Logs/Muse Panel/usage.log（只记录时间、账号名和各步骤耗时，不含聊天内容）
-  ipcMain.on('usage:log', (_e, entry: Record<string, unknown>) => {
-    try {
-      const dir = app.getPath('logs')
-      mkdirSync(dir, { recursive: true })
-      appendFileSync(join(dir, 'usage.log'), `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`)
-    } catch {}
-  })
-  ipcMain.handle('usage:save', (_e, id: string, raw: string, bars: number[]) => saveUsage(id, raw, bars))
-  // 给某个账号页面发一次"真实"按键（页面里合成的按键不生效时的兜底）
-  ipcMain.handle('webview:key', (_e, wcId: number, keyCode: string, modifiers: ('meta' | 'shift')[] = []) => {
-    const wc = webContents.fromId(wcId)
-    if (!wc || wc.isDestroyed()) return false
-    wc.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
-    wc.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
-    return true
-  })
+  ipcMain.handle('usage:queueState', () => usageQueueState())
   ipcMain.handle('account:clearData', async (_e, id: string) => {
     await session.fromPartition(`persist:muse-${id}`).clearStorageData()
     return true
@@ -173,7 +156,8 @@ app.whenReady().then(() => {
   createWindow(cfg)
 
   onConfigChange((c) => send('config:changed', c))
-  // 额度只在用户点刷新时读取，不做启动时或定时的抓取
+  // 额度只在用户点刷新时读取（串行队列），不做启动时或定时的抓取
+  initUsageQueue((id, state) => send('usage:state', id, state))
 
 
   app.on('activate', () => {

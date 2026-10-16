@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { arrayMove, horizontalListSortingStrategy, SortableContext } from '@dnd-kit/sortable'
-import type { Account, AccountStatus, AppConfig, Usage } from '../../shared/types'
+import type { Account, AccountStatus, AppConfig } from '../../shared/types'
 import { emptyUsage } from '../../shared/types'
-import { AccountColumn } from './components/AccountColumn'
+import { AccountColumn, type UsageFlash } from './components/AccountColumn'
 import { TabBar } from './components/TabBar'
-import { keyDiag, registry } from './webviewRegistry'
+import { registry } from './webviewRegistry'
 import { IconSidebar } from './components/icons'
 
 export function App(): React.JSX.Element {
@@ -43,45 +43,56 @@ export function App(): React.JSX.Element {
   }, [])
 
   // ---------- 手动刷新额度 ----------
-  // 页面已打开：在页面里静默读取（不开新窗口）；页面没加载（如休眠中）：退回后台离屏读取一次
-  const refreshUsage = useCallback(async (id: string): Promise<{ kind: 'ok' | 'same' | 'error'; text: string }> => {
-    const before = cfgRef.current?.accounts[id]?.usage
-    const e = registry.get(id)
-    let after: Usage | null = null
-    let error: string | undefined
-    let viaBackground = false
-    const t0 = performance.now()
-    const log: Record<string, unknown> = {
-      account: cfgRef.current?.accounts[id]?.name,
-      panelFocused: document.hasFocus(),
-      pageReady: !!e?.ready,
-      loggedIn: e?.status?.loggedIn ?? null,
-      busy: e?.status?.busy ?? null
-    }
-    if (e?.ready && e.status?.loggedIn) {
-      const r = await registry.readUsage(id, 8000)
-      log.inPage = { ok: r.ok, error: r.error, ...(r.diag ?? {}) }
-      log.key = keyDiag.get(id)
-      if (r.ok && r.raw) after = await window.panel.saveUsage(id, r.raw, r.bars ?? [])
-    }
-    if (!after) {
-      // 页面内读不到（或页面未加载）：退回后台离屏读取一次
-      viaBackground = true
-      const tb = performance.now()
-      after = await window.panel.refreshUsage(id)
-      if (!after || (after.error && after.updatedAt === before?.updatedAt)) error = after?.error ?? '读取失败'
-      log.background = { ms: Math.round(performance.now() - tb), error: error ?? null }
-    }
-    log.path = viaBackground ? 'background' : 'in-page'
-    log.totalMs = Math.round(performance.now() - t0)
-    window.panel.logUsage(log)
-    const tag = viaBackground ? '（后台读取）' : ''
-    if (error || !after) return { kind: 'error', text: `刷新失败：${error}` }
-    const same = before?.weeklyPercent === after.weeklyPercent && before?.extraText === after.extraText
-    if (same) return { kind: 'same', text: `已是最新${tag}` }
-    const from = before?.weeklyPercent
-    return { kind: 'ok', text: (from != null && after.weeklyPercent != null ? `已更新 ${from}% → ${after.weeklyPercent}%` : '已更新') + tag }
+  // 所有刷新都交给主进程的串行队列（同一时间只跑 1 个，后台离屏读取，不碰正在看的页面）。
+  // 队列状态（排队中 / 刷新中）实时推送过来；每次结果在列头显示 3 秒。
+  const [usageState, setUsageState] = useState<Record<string, 'queued' | 'running'>>({})
+  const [usageFlash, setUsageFlash] = useState<Record<string, UsageFlash>>({})
+  const flashTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+  useEffect(() => {
+    void window.panel.usageQueueState().then((st) => {
+      const m: Record<string, 'queued' | 'running'> = {}
+      for (const [id, v] of Object.entries(st)) if (v !== 'idle') m[id] = v
+      setUsageState(m)
+    })
+    return window.panel.on('usage:state', (id, state) =>
+      setUsageState((m) => {
+        const n = { ...m }
+        if (state === 'idle') delete n[id as string]
+        else n[id as string] = state as 'queued' | 'running'
+        return n
+      })
+    )
   }, [])
+  const refreshUsage = useCallback(async (id: string): Promise<void> => {
+    const before = cfgRef.current?.accounts[id]?.usage
+    const { usage: after, error } = await window.panel.refreshUsage(id)
+    let flash: UsageFlash
+    if (error || !after) flash = { kind: 'error', text: `刷新失败：${error ?? '读取失败'}` }
+    else if (before?.weeklyPercent === after.weeklyPercent && before?.extraText === after.extraText) flash = { kind: 'same', text: '已是最新' }
+    else {
+      const from = before?.weeklyPercent
+      flash = { kind: 'ok', text: from != null && after.weeklyPercent != null ? `已更新 ${from}% → ${after.weeklyPercent}%` : '已更新' }
+    }
+    setUsageFlash((m) => ({ ...m, [id]: flash }))
+    clearTimeout(flashTimers.current[id])
+    flashTimers.current[id] = setTimeout(
+      () =>
+        setUsageFlash((m) => {
+          const n = { ...m }
+          delete n[id]
+          return n
+        }),
+      3000
+    )
+  }, [])
+  // 刷新整组：按列的顺序依次加入队列（串行执行）
+  const refreshGroup = useCallback(
+    (tabId: string) => {
+      const t = cfgRef.current?.tabs.find((x) => x.id === tabId)
+      t?.accountIds.forEach((id) => void refreshUsage(id))
+    },
+    [refreshUsage]
+  )
 
   const ensureMounted = useCallback((id: string) => setMounted((m) => (m.has(id) ? m : new Set(m).add(id))), [])
 
@@ -274,6 +285,7 @@ export function App(): React.JSX.Element {
               })
             }
             onDelete={(id) => void deleteTab(id)}
+            onRefreshGroup={refreshGroup}
           />
           {/* 添加账号：紧跟在「新建组」下方，左右居中 */}
           <div className="add-zone">
@@ -312,7 +324,9 @@ export function App(): React.JSX.Element {
                   rules={cfg.rules}
                   onChange={(mut) => update((c) => mut(c.accounts[a.id]))}
                   onDelete={() => void deleteAccount(a.id)}
-                  onRefreshUsage={() => refreshUsage(a.id)}
+                  usageState={usageState[a.id]}
+                  usageFlash={usageFlash[a.id] ?? null}
+                  onRefreshUsage={() => void refreshUsage(a.id)}
                 />
               ))}
             </div>
