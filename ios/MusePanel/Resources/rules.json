@@ -1,0 +1,18 @@
+{
+  "homeUrl": "https://muse.ai/",
+  "invite": {
+    "selectors": ["[data-testid=\"hatch-invite-friends-button\"]"],
+    "textPatterns": ["邀请", "Invite"],
+    "maxTop": 140
+  },
+  "hide": {
+    "selectors": ["nav:has(a[data-hatch-shell-navigation])"],
+    "textPatterns": ["下载 ?Muse ?应用", "Download (the )?Muse app", "在应用中打开", "Open in (the )?app"]
+  },
+  "pauseLoopingVideos": true,
+  "sessionCookie": "hatch_sess",
+  "appShell": "[data-hatch-boot-surface]",
+  "composerLayer": "[data-hatch-shell-composer-layer]",
+  "debugDump": false,
+  "blockedHosts": ["apps.apple.com", "itunes.apple.com"]
+}
