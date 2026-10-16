@@ -17,6 +17,7 @@ export interface Account {
   sleeping?: boolean // 手动休眠：不创建 webview
   usage: Usage
   manualUsage: string // 手填兜底
+  resetTime?: string // 手填的重置时刻 "HH:MM"（页面上抓不到时间，只抓得到日期）
 }
 
 export interface Tab {
@@ -113,6 +114,13 @@ export const DEFAULT_RULES: Rules = {
     { selector: '[data-testid="hatch-side-chats-panel-shell"]', action: 'hide', note: '聊天列表（需要时可删掉此条）' },
     { selector: '[data-testid="hatch-status-panel-sliding-surface"]', action: 'hide', note: '右侧状态面板（信息已搬到列头）' }
   ]
+}
+
+// 重置提示：日期用抓到的 resetText（如 "10月17日"），时刻用手填的 resetTime → "10月17日14点30分重置"
+export function resetLabel(resetText: string | null, resetTime?: string): string | null {
+  if (!resetText) return null
+  const m = resetTime?.match(/^(\d{1,2}):(\d{2})$/)
+  return m ? `${resetText}${Number(m[1])}点${m[2]}分重置` : `${resetText}重置`
 }
 
 export function emptyUsage(): Usage {

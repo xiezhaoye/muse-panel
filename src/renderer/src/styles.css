@@ -109,7 +109,11 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .column { flex: 1 1 0; min-width: var(--col-min); display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--panel); }
 /* 不在当前组的列：display:none 让页面进入"隐藏"状态（动画停、定时器降频，省 CPU/GPU）；DOM 不移动，webview 不重载 */
 .column.hidden { display: none; }
-.column.dragging { opacity: .6; z-index: 5; }
+.column.dragging { opacity: .45; outline: 2px dashed var(--accent); outline-offset: -2px; }
+/* 拖动账号时跟随鼠标的卡片（webview 无法克隆，只显示名称和额度） */
+.drag-card { width: 220px; padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 12px 30px rgba(0,0,0,.22); cursor: grabbing; }
+.drag-card-name { font-weight: 700; font-size: 16px; color: var(--text); }
+.drag-card-sub { margin-top: 3px; font-size: 12px; color: var(--muted); }
 body.dnd-active .webview-holder { pointer-events: none; } /* 拖拽时 webview 会吞掉鼠标事件 */
 
 .infobar { position: relative; flex: none; padding: 6px 8px 6px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 3px; }
@@ -158,6 +162,8 @@ body.dnd-active .webview-holder { pointer-events: none; } /* 拖拽时 webview �
   display: flex; align-items: baseline; gap: 8px; width: 100%; border: 0; background: none;
   padding: 7px 30px 7px 10px; border-radius: 6px; text-align: left; position: relative;
 }
+.menu-field { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; cursor: default; }
+.menu-field input { margin-left: auto; font: inherit; font-size: 13px; padding: 3px 6px; border: 1px solid rgba(127,127,127,.35); border-radius: 6px; background: transparent; color: var(--text); }
 .menu-item:hover { background: rgba(127,127,127,.12); }
 .mi-icon { flex: none; align-self: center; display: flex; color: var(--muted); }
 .menu-item.danger .mi-icon { color: var(--danger); }

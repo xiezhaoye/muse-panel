@@ -1,12 +1,54 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { closestCenter, CollisionDetection, DndContext, DragEndEvent, DragOverEvent, DragOverlay, DragStartEvent, MeasuringStrategy, Modifier, PointerSensor, pointerWithin, useSensor, useSensors } from '@dnd-kit/core'
+import { getEventCoordinates } from '@dnd-kit/utilities'
 import { arrayMove, horizontalListSortingStrategy, SortableContext } from '@dnd-kit/sortable'
-import type { Account, AccountStatus, AppConfig } from '../../shared/types'
-import { emptyUsage } from '../../shared/types'
+import type { Account, AccountStatus, AppConfig, Tab } from '../../shared/types'
+import { emptyUsage, resetLabel } from '../../shared/types'
 import { AccountColumn, type UsageFlash } from './components/AccountColumn'
 import { TabBar } from './components/TabBar'
 import { registry } from './webviewRegistry'
 import { IconSidebar } from './components/icons'
+
+// 碰撞检测：列很宽、组名条很小，默认的矩形重叠算法几乎判不到组上。
+// 拖账号时：指针落在某个组名上 → 该组；否则取指针横向所在的那一列（列是满高的，只看 x）。
+// 拖组时：只在组之间判断。
+// 其它组的列虽然隐藏了，仍然注册为落点且保留旧位置，所以只认当前显示的组里的列（shown()）。
+const makeCollision = (shown: () => string[]): CollisionDetection => (args) => {
+  const dragTab = String(args.active.id).startsWith('tab:')
+  const tabs = args.droppableContainers.filter((c) => String(c.id).startsWith('tab:'))
+  if (dragTab) return closestCenter({ ...args, droppableContainers: tabs })
+  const hit = pointerWithin({ ...args, droppableContainers: tabs })
+  if (hit.length) return hit
+  const ids = shown()
+  const cols = args.droppableContainers.filter((c) => ids.includes(String(c.id)))
+  const px = args.pointerCoordinates?.x
+  if (px != null) {
+    const col = cols.find((c) => {
+      const r = args.droppableRects.get(c.id)
+      return r && px >= r.left && px <= r.right
+    })
+    if (col) return [{ id: col.id }]
+  }
+  return closestCenter({ ...args, droppableContainers: cols })
+}
+
+// 拖动卡片的中心对准鼠标
+const snapCenter: Modifier = ({ activatorEvent, draggingNodeRect, transform }) => {
+  const p = activatorEvent && getEventCoordinates(activatorEvent)
+  if (!p || !draggingNodeRect) return transform
+  return {
+    ...transform,
+    x: transform.x + p.x - draggingNodeRect.left - draggingNodeRect.width / 2,
+    y: transform.y + p.y - draggingNodeRect.top - draggingNodeRect.height / 2
+  }
+}
+
+// 拖动账号的过程中，分组和当前显示的组都先放在这份"预览"里，松手才写入配置；按 Esc 取消则丢弃
+interface DragPreview {
+  id: string
+  tabs: Tab[]
+  view: string
+}
 
 export function App(): React.JSX.Element {
   const [cfg, setCfg] = useState<AppConfig | null>(null)
@@ -16,6 +58,11 @@ export function App(): React.JSX.Element {
   const [liveWidth, setLiveWidth] = useState<number | null>(null)
   const cfgRef = useRef<AppConfig | null>(null)
   cfgRef.current = cfg
+  const [drag, setDrag] = useState<DragPreview | null>(null)
+  const dragRef = useRef<DragPreview | null>(null)
+  dragRef.current = drag
+  const shownRef = useRef<string[]>([])
+  const collision = useMemo(() => makeCollision(() => shownRef.current), [])
 
   // ---------- 初始化 ----------
   useEffect(() => {
@@ -100,7 +147,7 @@ export function App(): React.JSX.Element {
   // 切到某个组时加载它的账号；离开一个组超过 hibernateAfterMin 分钟，就卸载该组的页面释放内存。
   // 切回来时重新加载（登录态保存在 partition 里，不会掉）。
   const leftAt = useRef<Record<string, number>>({})
-  const activeTabId = cfg?.window.activeTabId ?? null
+  const activeTabId = drag?.view ?? cfg?.window.activeTabId ?? null
   useEffect(() => {
     const c = cfgRef.current
     if (!c || !activeTabId) return
@@ -145,12 +192,14 @@ export function App(): React.JSX.Element {
     void window.panel.setConfig(next)
   }, [])
 
-  const activeTab = cfg?.tabs.find((t) => t.id === cfg.window.activeTabId) ?? cfg?.tabs[0]
+  // 拖动中显示预览里的分组和组，否则显示配置里的
+  const tabs = drag?.tabs ?? cfg?.tabs
+  const activeTab = tabs?.find((t) => t.id === activeTabId) ?? tabs?.[0]
   const tabOf = useMemo(() => {
     const m: Record<string, string> = {}
-    cfg?.tabs.forEach((t) => t.accountIds.forEach((id) => (m[id] = t.id)))
+    tabs?.forEach((t) => t.accountIds.forEach((id) => (m[id] = t.id)))
     return m
-  }, [cfg?.tabs])
+  }, [tabs])
 
   const busyCount = useMemo(() => {
     const m: Record<string, number> = {}
@@ -163,8 +212,9 @@ export function App(): React.JSX.Element {
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
-  if (!cfg || !activeTab) return <div className="loading">加载中…</div>
+  if (!cfg || !tabs || !activeTab) return <div className="loading">加载中…</div>
 
+  shownRef.current = activeTab.accountIds
   const accountsInTab = activeTab.accountIds.map((id) => cfg.accounts[id]).filter(Boolean)
   const collapsed = !!cfg.window.sidebarCollapsed
   const setCollapsed = (v: boolean): void => update((c) => (c.window.sidebarCollapsed = v))
@@ -228,14 +278,39 @@ export function App(): React.JSX.Element {
     })
   }
 
-  const onDragEnd = (e: DragEndEvent): void => {
+  const endDrag = (): void => {
     document.body.classList.remove('dnd-active')
+    setDrag(null)
+  }
+
+  const onDragStart = (e: DragStartEvent): void => {
+    document.body.classList.add('dnd-active')
+    const id = String(e.active.id)
+    if (!id.startsWith('tab:')) setDrag({ id, tabs: structuredClone(cfg.tabs), view: activeTab.id })
+  }
+
+  // 拖账号经过某个组名：立刻切过去显示该组，并把这一列先放进该组末尾；
+  // 之后在该组的列上移动，由排序动画实时让出位置
+  const onDragOver = (e: DragOverEvent): void => {
+    const d = dragRef.current
+    const over = e.over ? String(e.over.id) : null
+    if (!d || !over?.startsWith('tab:')) return
+    const target = over.slice(4)
+    if (target === d.view) return
+    const next = structuredClone(d.tabs)
+    next.forEach((t) => (t.accountIds = t.accountIds.filter((x) => x !== d.id)))
+    next.find((t) => t.id === target)!.accountIds.push(d.id)
+    setDrag({ ...d, tabs: next, view: target })
+  }
+
+  const onDragEnd = (e: DragEndEvent): void => {
     const id = String(e.active.id)
     const over = e.over ? String(e.over.id) : null
-    if (!over || over === id) return
+    const d = dragRef.current
+    endDrag()
     // 拖的是组：只在组之间排序
     if (id.startsWith('tab:')) {
-      if (!over.startsWith('tab:')) return
+      if (!over?.startsWith('tab:') || over === id) return
       update((c) => {
         const from = c.tabs.findIndex((t) => `tab:${t.id}` === id)
         const to = c.tabs.findIndex((t) => `tab:${t.id}` === over)
@@ -243,25 +318,33 @@ export function App(): React.JSX.Element {
       })
       return
     }
-    if (over.startsWith('tab:')) {
-      const target = over.slice(4)
-      if (target === tabOf[id]) return
-      update((c) => {
-        c.tabs.forEach((t) => (t.accountIds = t.accountIds.filter((x) => x !== id)))
-        c.tabs.find((t) => t.id === target)!.accountIds.push(id)
-      })
-      return
-    }
-    update((c) => {
-      const t = c.tabs.find((x) => x.id === activeTab.id)!
+    if (!d) return
+    // 拖的是账号：以预览为准，再按落点列排一下顺序；松手后停在这一列所在的组
+    const next = structuredClone(d.tabs)
+    const t = next.find((x) => x.id === d.view)!
+    if (over && !over.startsWith('tab:') && over !== id) {
       const from = t.accountIds.indexOf(id)
       const to = t.accountIds.indexOf(over)
       if (from >= 0 && to >= 0) t.accountIds = arrayMove(t.accountIds, from, to)
+    }
+    update((c) => {
+      c.tabs = c.tabs.map((x) => ({ ...x, accountIds: next.find((y) => y.id === x.id)?.accountIds ?? x.accountIds }))
+      c.window.activeTabId = d.view
     })
   }
 
+  const dragged = drag ? cfg.accounts[drag.id] : null
+
   return (
-    <DndContext sensors={sensors} onDragStart={() => document.body.classList.add('dnd-active')} onDragEnd={onDragEnd} onDragCancel={() => document.body.classList.remove('dnd-active')}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={collision}
+      measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragEnd={onDragEnd}
+      onDragCancel={endDrag}
+    >
       <div className="app">
         {collapsed ? (
           <div className="sidebar-strip" title="展开分组栏" onClick={() => setCollapsed(false)}>
@@ -272,7 +355,7 @@ export function App(): React.JSX.Element {
           <div className="sidebar-resizer" title="拖动调节宽度" onPointerDown={startResize} />
           <div className="brand">Muse Panel</div>
           <TabBar
-            tabs={cfg.tabs}
+            tabs={tabs}
             activeId={activeTab.id}
             busyCount={busyCount}
             onSelect={(id) => update((c) => (c.window.activeTabId = id))}
@@ -333,6 +416,17 @@ export function App(): React.JSX.Element {
           </SortableContext>
         </main>
       </div>
+      <DragOverlay modifiers={[snapCenter]} dropAnimation={null}>
+        {dragged && (
+          <div className="drag-card">
+            <div className="drag-card-name">{dragged.name}</div>
+            <div className="drag-card-sub">
+              {dragged.usage.weeklyPercent != null ? `每周额度 ${dragged.usage.weeklyPercent}% 已用` : '额度未知'}
+              {resetLabel(dragged.usage.resetText, dragged.resetTime) && ` · ${resetLabel(dragged.usage.resetText, dragged.resetTime)}`}
+            </div>
+          </div>
+        )}
+      </DragOverlay>
     </DndContext>
   )
 }

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import type { Account, AccountStatus, Rules } from '../../../shared/types'
+import { resetLabel, type Account, type AccountStatus, type Rules } from '../../../shared/types'
 import { registry, WebviewEl } from '../webviewRegistry'
-import { IconGear, IconGrip, IconMoon, IconPencil, IconRefresh, IconTrash, IconWork } from './icons'
+import { IconClock, IconGear, IconGrip, IconMoon, IconPencil, IconRefresh, IconTrash, IconWork } from './icons'
 
 interface Props {
   account: Account
@@ -32,8 +32,9 @@ function WeeklyUsage(p: {
   onRefresh: () => void
 }): React.JSX.Element {
   const u = p.a.usage
+  const reset = resetLabel(u.resetText, p.a.resetTime)
   const used = u.weeklyPercent == null ? null : Math.max(0, Math.min(100, u.weeklyPercent))
-  const tip = [u.resetText ? `${u.resetText}重置` : '', u.updatedAt ? `更新于 ${new Date(u.updatedAt).toLocaleString('zh-CN')}` : '']
+  const tip = [reset ?? '', u.updatedAt ? `更新于 ${new Date(u.updatedAt).toLocaleString('zh-CN')}` : '']
     .filter(Boolean)
     .join('，')
   const busy = !!p.state
@@ -62,7 +63,7 @@ function WeeklyUsage(p: {
         ) : p.flash ? (
           <span className={`reset flash ${p.flash.kind}`}>{p.flash.text}</span>
         ) : (
-          u.resetText && <span className="reset">{u.resetText}重置</span>
+          reset && <span className="reset">{reset}</span>
         )}
       </div>
       {used != null && (
@@ -230,6 +231,22 @@ export function AccountColumn(p: Props): React.JSX.Element {
               <span className="mi-main">刷新</span>
               <span className="mi-note">重新加载这一列</span>
             </button>
+            <label className="menu-field" title="页面上只抓得到重置日期，时刻需要手填；留空则只显示日期">
+              <span className="mi-icon"><IconClock size={17} /></span>
+              <span className="mi-main">重置时间</span>
+              <input
+                type="time"
+                key={a.resetTime ?? ''}
+                defaultValue={a.resetTime ?? ''}
+                onBlur={(e) => {
+                  const v = e.target.value
+                  if (v !== (a.resetTime ?? '')) p.onChange((x) => (v ? (x.resetTime = v) : delete x.resetTime))
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                }}
+              />
+            </label>
             <div className="menu-sep" />
             <button
               className={`menu-item ${!a.sleeping ? 'checked' : ''}`}
