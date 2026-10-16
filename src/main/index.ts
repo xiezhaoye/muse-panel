@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, session, shell, webContents } from 'electron'
 import { join } from 'node:path'
 import {
   configPath,
@@ -10,7 +10,7 @@ import {
   setConfig,
   updateConfig
 } from './config'
-import { startUsageScheduler, refreshUsage } from './usage'
+import { refreshUsage, saveUsage } from './usage'
 import type { AppConfig } from '../shared/types'
 
 // UA 归一化：去掉 Electron/x.y.z 和应用名，网站看到的就是普通 Chrome。
@@ -112,8 +112,6 @@ function buildMenu(): void {
           }
         },
         { type: 'separator' },
-        { label: '刷新全部用量', click: () => refreshAllUsage() },
-        { type: 'separator' },
         { role: 'reload', label: '重载面板界面' },
         { role: 'toggleDevTools' }
       ]
@@ -123,10 +121,6 @@ function buildMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
-function refreshAllUsage(): void {
-  const ids = Object.keys(getConfig().accounts)
-  ids.forEach((id, i) => setTimeout(() => refreshUsage(id), i * 4000))
-}
 
 function send(channel: string, ...args: unknown[]): void {
   win?.webContents.send(channel, ...args)
@@ -140,6 +134,15 @@ function registerIpc(): void {
   ipcMain.handle('config:path', () => configPath())
   ipcMain.handle('paths:musePreload', () => `file://${musePreloadPath()}`)
   ipcMain.handle('usage:refresh', (_e, id: string) => refreshUsage(id))
+  ipcMain.handle('usage:save', (_e, id: string, raw: string, bars: number[]) => saveUsage(id, raw, bars))
+  // 给某个账号页面发一次"真实"按键（页面里合成的按键不生效时的兜底）
+  ipcMain.handle('webview:key', (_e, wcId: number, keyCode: string, modifiers: ('meta' | 'shift')[] = []) => {
+    const wc = webContents.fromId(wcId)
+    if (!wc || wc.isDestroyed()) return false
+    wc.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
+    wc.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
+    return true
+  })
   ipcMain.handle('account:clearData', async (_e, id: string) => {
     await session.fromPartition(`persist:muse-${id}`).clearStorageData()
     return true
@@ -161,7 +164,7 @@ app.whenReady().then(() => {
   createWindow(cfg)
 
   onConfigChange((c) => send('config:changed', c))
-  startUsageScheduler((id) => send('usage:updated', id, getConfig().accounts[id]?.usage))
+  // 额度只在用户点刷新时读取，不做启动时或定时的抓取
 
 
   app.on('activate', () => {

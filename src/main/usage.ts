@@ -2,11 +2,12 @@ import { BrowserWindow } from 'electron'
 import { getConfig, updateConfig } from './config'
 import type { Rules, Usage } from '../shared/types'
 
-// 用量（"余额"）在 muse.ai 的 设置 → 使用情况 里，没有可直接调用的接口。
-// 做法：开一个与账号同 partition 的隐藏窗口（带同一登录态），点开设置读文本，然后销毁。
+// 额度在 muse.ai 的 设置 → 使用情况 里，没有可直接调用的接口（数据走加密长连接）。
+// 平时在已打开的账号页面里静默读取（见 preload/muse.ts readUsage）；
+// 这里的 refreshUsage 只用于账号页面没有加载时（比如休眠中）的手动刷新：
+// 开一个同 partition 的离屏窗口读一次，然后销毁。不做任何定时抓取。
 
 const running = new Set<string>()
-let onUpdated: (id: string) => void = () => {}
 
 function scrapeScript(r: Rules['usage']): string {
   return `(async () => {
@@ -86,31 +87,14 @@ export async function refreshUsage(accountId: string): Promise<Usage | null> {
     if (result.raw) a.usage = { ...parseUsage(result.raw, result.bars), raw: result.raw, updatedAt: Date.now(), error: null }
     else a.usage = { ...a.usage, error: result.error ?? '未知错误' } // 失败不覆盖旧值
   })
-  onUpdated(accountId)
   return getConfig().accounts[accountId]?.usage ?? null
 }
 
-export function startUsageScheduler(cb: (id: string) => void): void {
-  onUpdated = cb
-  const kick = (): void => {
-    const cfg = getConfig()
-    const ids = Object.values(cfg.accounts)
-      .filter((a) => !a.sleeping)
-      .map((a) => a.id)
-    // 错峰：每个账号间隔 5~15 秒随机，避免同一时刻一起请求
-    let delay = 8000
-    for (const id of ids) {
-      setTimeout(() => refreshUsage(id), delay)
-      delay += 5000 + Math.random() * 10000
-    }
-  }
-  kick()
-  const loop = (): void => {
-    const min = Math.max(5, getConfig().rules.usage.intervalMin)
-    setTimeout(() => {
-      kick()
-      loop()
-    }, min * 60_000)
-  }
-  loop()
+/** 把页面里读到的额度（方案 A：在已打开的账号页面里静默读取）存进配置 */
+export function saveUsage(accountId: string, raw: string, bars: number[]): Usage | null {
+  updateConfig((c) => {
+    const a = c.accounts[accountId]
+    if (a) a.usage = { ...parseUsage(raw, bars), raw, updatedAt: Date.now(), error: null }
+  })
+  return getConfig().accounts[accountId]?.usage ?? null
 }

@@ -140,6 +140,13 @@ body.dnd-active .webview-holder { pointer-events: none; } /* 拖拽时 webview �
 .weekly-line b { font-weight: 700; margin: 0 1px; }
 .weekly-line .reset { margin-left: auto; color: var(--muted); white-space: nowrap; }
 .icon.urefresh { display: flex; padding: 2px 3px; }
+.icon.urefresh:disabled { cursor: default; }
+.icon.urefresh.spinning svg { animation: muse-spin .8s linear infinite; color: var(--accent); }
+@keyframes muse-spin { to { transform: rotate(360deg); } }
+.weekly-line .reset.flash { font-weight: 600; }
+.weekly-line .reset.flash.ok { color: var(--ok); }
+.weekly-line .reset.flash.same { color: var(--muted); }
+.weekly-line .reset.flash.error { color: var(--danger); }
 
 /* 列头右上角的下拉菜单 */
 .menu {

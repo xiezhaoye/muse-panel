@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { arrayMove, horizontalListSortingStrategy, SortableContext } from '@dnd-kit/sortable'
-import type { Account, AccountStatus, AppConfig } from '../../shared/types'
+import type { Account, AccountStatus, AppConfig, Usage } from '../../shared/types'
 import { emptyUsage } from '../../shared/types'
 import { AccountColumn } from './components/AccountColumn'
 import { TabBar } from './components/TabBar'
@@ -40,6 +40,32 @@ export function App(): React.JSX.Element {
       offs.forEach((f) => f())
       offStatus()
     }
+  }, [])
+
+  // ---------- 手动刷新额度 ----------
+  // 页面已打开：在页面里静默读取（不开新窗口）；页面没加载（如休眠中）：退回后台离屏读取一次
+  const refreshUsage = useCallback(async (id: string): Promise<{ kind: 'ok' | 'same' | 'error'; text: string }> => {
+    const before = cfgRef.current?.accounts[id]?.usage
+    const e = registry.get(id)
+    let after: Usage | null = null
+    let error: string | undefined
+    let viaBackground = false
+    if (e?.ready && e.status?.loggedIn) {
+      const r = await registry.readUsage(id, 8000)
+      if (r.ok && r.raw) after = await window.panel.saveUsage(id, r.raw, r.bars ?? [])
+    }
+    if (!after) {
+      // 页面内读不到（或页面未加载）：退回后台离屏读取一次
+      viaBackground = true
+      after = await window.panel.refreshUsage(id)
+      if (!after || (after.error && after.updatedAt === before?.updatedAt)) error = after?.error ?? '读取失败'
+    }
+    const tag = viaBackground ? '（后台读取）' : ''
+    if (error || !after) return { kind: 'error', text: `刷新失败：${error}` }
+    const same = before?.weeklyPercent === after.weeklyPercent && before?.extraText === after.extraText
+    if (same) return { kind: 'same', text: `已是最新${tag}` }
+    const from = before?.weeklyPercent
+    return { kind: 'ok', text: (from != null && after.weeklyPercent != null ? `已更新 ${from}% → ${after.weeklyPercent}%` : '已更新') + tag }
   }, [])
 
   const ensureMounted = useCallback((id: string) => setMounted((m) => (m.has(id) ? m : new Set(m).add(id))), [])
@@ -271,7 +297,7 @@ export function App(): React.JSX.Element {
                   rules={cfg.rules}
                   onChange={(mut) => update((c) => mut(c.accounts[a.id]))}
                   onDelete={() => void deleteAccount(a.id)}
-                  onRefreshUsage={() => void window.panel.refreshUsage(a.id)}
+                  onRefreshUsage={() => refreshUsage(a.id)}
                 />
               ))}
             </div>

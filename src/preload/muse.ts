@@ -160,6 +160,123 @@ async function inject(job: { id: string; text: string; send: boolean; append?: b
   reply(false, '点击发送后未确认消息已发出')
 }
 
+// ---------- 额度：在已打开的页面里静默读取（方案 A） ----------
+// 用 ⌘, 打开设置 → 读「使用情况」的进度条 → Esc 关闭。期间弹窗不可见、不可点；结束后还原输入焦点。
+// 用户自己正开着设置时，直接读，不去开关它。
+const trustedKeyWaiters = new Map<string, () => void>()
+ipcRenderer.on('muse:trustedKeyDone', (_e, id: string) => {
+  trustedKeyWaiters.get(id)?.()
+  trustedKeyWaiters.delete(id)
+})
+function trustedKey(key: string, modifiers: string[]): Promise<void> {
+  // 合成按键不生效时，请面板通过主进程发一次真实按键
+  const id = `k${Date.now()}${Math.random()}`
+  return new Promise((resolve) => {
+    trustedKeyWaiters.set(id, resolve)
+    ipcRenderer.sendToHost('muse:trustedKey', { id, key, modifiers })
+    setTimeout(resolve, 1500)
+  })
+}
+
+async function readUsage(job: { id: string }): Promise<void> {
+  const reply = (r: { ok: boolean; raw?: string; bars?: number[]; error?: string }): void =>
+    ipcRenderer.sendToHost('muse:usage', { id: job.id, ...r })
+  if (!rules) return reply({ ok: false, error: '规则未就绪' })
+  const u = rules.usage
+  const findTitle = (): Element | undefined =>
+    [...document.querySelectorAll('*')].find((e) => e.children.length === 0 && e.textContent?.trim() === u.sectionTitle)
+  const waitFor = async <T>(fn: () => T | null | undefined, ms: number): Promise<T | null> => {
+    const t = Date.now()
+    while (Date.now() - t < ms) {
+      const v = fn()
+      if (v) return v
+      await sleep(100)
+    }
+    return null
+  }
+  const readBox = async (title: Element): Promise<{ raw: string; bars: number[] } | null> => {
+    const box = await waitFor(() => {
+      let el: Element | null = title
+      for (let i = 0; i < 6 && el; i++) {
+        el = el.parentElement
+        if (el && el.querySelectorAll(u.progressBar).length) return el
+      }
+      return null
+    }, 8000)
+    if (!box) return null
+    await sleep(200)
+    const bars = [...box.querySelectorAll(u.progressBar)].map((b) => Number(b.getAttribute('aria-valuenow')))
+    return { raw: (box.textContent ?? '').replace(/\s+/g, ' ').trim(), bars }
+  }
+
+  // 用户自己开着设置：直接读
+  const already = findTitle()
+  if (already) {
+    const r = await readBox(already)
+    return reply(r ? { ok: true, ...r } : { ok: false, error: '额度数据未加载' })
+  }
+
+  // 静默模式：这期间新加到页面上的浮层（弹窗、遮罩）一律透明、不可点
+  const prevFocus = document.activeElement as HTMLElement | null
+  const root = document.documentElement
+  root.setAttribute('data-muse-silent', '1')
+  let style = document.getElementById('muse-panel-silent') as HTMLStyleElement | null
+  if (!style) {
+    style = document.createElement('style')
+    style.id = 'muse-panel-silent'
+    style.textContent =
+      'html[data-muse-silent] [role="dialog"], html[data-muse-silent] [data-muse-silent-node] { opacity: 0 !important; pointer-events: none !important; }'
+    ;(document.head || root).appendChild(style)
+  }
+  const marked = new Set<HTMLElement>()
+  const mo = new MutationObserver((ms) => {
+    for (const m of ms)
+      m.addedNodes.forEach((n) => {
+        if (n instanceof HTMLElement) {
+          n.setAttribute('data-muse-silent-node', '1')
+          marked.add(n)
+        }
+      })
+  })
+  mo.observe(document.body, { childList: true })
+  let opened = false
+  const timing: Record<string, number> = {}
+  try {
+    const t0 = Date.now()
+    // 账号页面通常没有键盘焦点，页面内合成的 ⌘, 往往不生效：先发真实按键，合成按键只作兜底
+    await trustedKey(',', ['meta'])
+    let title: Element | null = (await waitFor(findTitle, 2000)) ?? null
+    if (!title) {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: ',', code: 'Comma', metaKey: true, bubbles: true, cancelable: true }))
+      title = (await waitFor(findTitle, 2000)) ?? null
+    }
+    timing.open = Date.now() - t0
+    if (!title) return reply({ ok: false, error: '打不开设置' })
+    opened = true
+    const t1 = Date.now()
+    const r = await readBox(title)
+    timing.read = Date.now() - t1
+    console.log('[muse-panel] readUsage timing', JSON.stringify(timing))
+    reply(r ? { ok: true, ...r } : { ok: false, error: '额度数据未加载' })
+  } catch (e) {
+    reply({ ok: false, error: String(e) })
+  } finally {
+    // 无论成败都把设置关掉，再恢复可见和输入焦点
+    if (opened || findTitle()) {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true }))
+      if (!(await waitFor(() => !findTitle(), 1000))) {
+        await trustedKey('Escape', [])
+        await waitFor(() => !findTitle(), 1500)
+      }
+    }
+    mo.disconnect()
+    await sleep(350) // 等关闭动画结束再恢复可见，避免闪一下
+    root.removeAttribute('data-muse-silent')
+    marked.forEach((n) => n.removeAttribute('data-muse-silent-node'))
+    if (prevFocus && prevFocus !== document.body && document.contains(prevFocus)) prevFocus.focus({ preventScroll: true })
+  }
+}
+
 ipcRenderer.on('muse:rules', (_e, r: Rules) => {
   rules = r
   report(true)
@@ -174,6 +291,7 @@ document.addEventListener(
   true
 )
 ipcRenderer.on('muse:inject', (_e, job) => void inject(job))
+ipcRenderer.on('muse:readUsage', (_e, job) => void readUsage(job))
 ipcRenderer.on('muse:report', () => report(true))
 
 // 3 秒一次；页面隐藏（不在当前组）时 Chromium 会自动再降频

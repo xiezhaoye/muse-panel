@@ -16,12 +16,31 @@ interface Props {
   rules: Rules
   onChange: (mut: (a: Account) => void) => void
   onDelete: () => void
-  onRefreshUsage: () => void
+  onRefreshUsage: () => Promise<{ kind: 'ok' | 'same' | 'error'; text: string }>
 }
 
 // 头部尽量紧凑：一行"每周额度：52%已用 ↻"，下面一条进度条
-function WeeklyUsage({ a, onRefresh }: { a: Account; onRefresh: () => void }): React.JSX.Element {
+function WeeklyUsage({ a, onRefresh }: { a: Account; onRefresh: Props['onRefreshUsage'] }): React.JSX.Element {
   const u = a.usage
+  // 点刷新后：图标转圈 → 结果在右侧显示 3 秒（已更新 / 已是最新 / 失败原因）
+  const [busy, setBusy] = useState(false)
+  const [flash, setFlash] = useState<{ kind: string; text: string } | null>(null)
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const refresh = async (): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    setFlash(null)
+    try {
+      const r = await onRefresh()
+      setFlash(r)
+    } catch (e) {
+      setFlash({ kind: 'error', text: `刷新失败：${String(e)}` })
+    } finally {
+      setBusy(false)
+      if (flashTimer.current) clearTimeout(flashTimer.current)
+      flashTimer.current = setTimeout(() => setFlash(null), 3000)
+    }
+  }
   const used = u.weeklyPercent == null ? null : Math.max(0, Math.min(100, u.weeklyPercent))
   const tip = [u.resetText ? `${u.resetText}重置` : '', u.updatedAt ? `更新于 ${new Date(u.updatedAt).toLocaleString('zh-CN')}` : '']
     .filter(Boolean)
@@ -34,12 +53,18 @@ function WeeklyUsage({ a, onRefresh }: { a: Account; onRefresh: () => void }): R
             每周额度：<b>{used}%</b>已用
           </span>
         ) : (
-          <span className="muted">{u.error ? `额度：${u.error}` : '额度：抓取中…'}</span>
+          <span className="muted">{u.error ? `额度：${u.error}` : '额度：点右侧按钮刷新'}</span>
         )}
-        <button className="icon urefresh" title="刷新额度" onClick={onRefresh}>
+        <button className={`icon urefresh ${busy ? 'spinning' : ''}`} title="刷新额度" disabled={busy} onClick={() => void refresh()}>
           <IconRefresh size={15} />
         </button>
-        {u.resetText && <span className="reset">{u.resetText}重置</span>}
+        {busy ? (
+          <span className="reset">刷新中…</span>
+        ) : flash ? (
+          <span className={`reset flash ${flash.kind}`}>{flash.text}</span>
+        ) : (
+          u.resetText && <span className="reset">{u.resetText}重置</span>
+        )}
       </div>
       {used != null && (
         <div className="ubar" role="progressbar" aria-valuenow={used} aria-valuemax={100}>
@@ -103,7 +128,17 @@ export function AccountColumn(p: Props): React.JSX.Element {
         registry.setReady(a.id, true)
         wv.send('muse:rules', rulesRef.current)
       } else if (channel === 'muse:status') registry.setStatus(a.id, args[0] as AccountStatus)
-      else if (channel === 'muse:injected') registry.resolveInjected(args[0] as { id: string; ok: boolean; error?: string })
+      else if (channel === 'muse:injected' || channel === 'muse:usage') registry.resolveInjected(args[0] as { id: string; ok: boolean; error?: string })
+      else if (channel === 'muse:trustedKey') {
+        const k = args[0] as { id: string; key: string; modifiers: ('meta' | 'shift')[] }
+        // 先把键盘焦点交给这一列的页面，真实按键才会送进去；之后还原焦点
+        const prev = document.activeElement as HTMLElement | null
+        wv.focus()
+        void window.panel
+          .sendKey(wv.getWebContentsId(), k.key, k.modifiers)
+          .then(() => wv.send('muse:trustedKeyDone', k.id))
+          .finally(() => setTimeout(() => prev?.focus?.(), 50))
+      }
     }
     const onDomReady = (): void => {
       registry.setReady(a.id, true)

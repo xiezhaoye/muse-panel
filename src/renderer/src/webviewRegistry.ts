@@ -16,7 +16,7 @@ interface Entry {
 }
 
 const entries = new Map<string, Entry>()
-const waiters = new Map<string, (r: { ok: boolean; error?: string }) => void>()
+const waiters = new Map<string, (r: { ok: boolean; error?: string; raw?: string; bars?: number[] }) => void>()
 const statusListeners = new Set<(id: string, s: AccountStatus) => void>()
 let seq = 0
 
@@ -65,6 +65,23 @@ export const registry = {
         resolve(r)
       })
       e.el.send('muse:inject', { id: jobId, text, send, append })
+    })
+  },
+  /** 在已打开的账号页面里静默读取额度（打开设置 → 读进度条 → 关闭） */
+  readUsage(id: string, timeoutMs = 20_000): Promise<{ ok: boolean; raw?: string; bars?: number[]; error?: string }> {
+    const e = entries.get(id)
+    if (!e || !e.ready) return Promise.resolve({ ok: false, error: '页面未就绪' })
+    const jobId = `u${Date.now()}-${++seq}`
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        waiters.delete(jobId)
+        resolve({ ok: false, error: '读取超时' })
+      }, timeoutMs)
+      waiters.set(jobId, (r) => {
+        clearTimeout(timer)
+        resolve(r)
+      })
+      e.el.send('muse:readUsage', { id: jobId })
     })
   },
   resolveInjected(r: { id: string; ok: boolean; error?: string }): void {
