@@ -5,7 +5,7 @@ import type { Account, AccountStatus, AppConfig, Usage } from '../../shared/type
 import { emptyUsage } from '../../shared/types'
 import { AccountColumn } from './components/AccountColumn'
 import { TabBar } from './components/TabBar'
-import { registry } from './webviewRegistry'
+import { keyDiag, registry } from './webviewRegistry'
 import { IconSidebar } from './components/icons'
 
 export function App(): React.JSX.Element {
@@ -50,16 +50,31 @@ export function App(): React.JSX.Element {
     let after: Usage | null = null
     let error: string | undefined
     let viaBackground = false
+    const t0 = performance.now()
+    const log: Record<string, unknown> = {
+      account: cfgRef.current?.accounts[id]?.name,
+      panelFocused: document.hasFocus(),
+      pageReady: !!e?.ready,
+      loggedIn: e?.status?.loggedIn ?? null,
+      busy: e?.status?.busy ?? null
+    }
     if (e?.ready && e.status?.loggedIn) {
       const r = await registry.readUsage(id, 8000)
+      log.inPage = { ok: r.ok, error: r.error, ...(r.diag ?? {}) }
+      log.key = keyDiag.get(id)
       if (r.ok && r.raw) after = await window.panel.saveUsage(id, r.raw, r.bars ?? [])
     }
     if (!after) {
       // 页面内读不到（或页面未加载）：退回后台离屏读取一次
       viaBackground = true
+      const tb = performance.now()
       after = await window.panel.refreshUsage(id)
       if (!after || (after.error && after.updatedAt === before?.updatedAt)) error = after?.error ?? '读取失败'
+      log.background = { ms: Math.round(performance.now() - tb), error: error ?? null }
     }
+    log.path = viaBackground ? 'background' : 'in-page'
+    log.totalMs = Math.round(performance.now() - t0)
+    window.panel.logUsage(log)
     const tag = viaBackground ? '（后台读取）' : ''
     if (error || !after) return { kind: 'error', text: `刷新失败：${error}` }
     const same = before?.weeklyPercent === after.weeklyPercent && before?.extraText === after.extraText

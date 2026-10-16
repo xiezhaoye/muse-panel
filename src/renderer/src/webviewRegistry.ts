@@ -16,7 +16,9 @@ interface Entry {
 }
 
 const entries = new Map<string, Entry>()
-const waiters = new Map<string, (r: { ok: boolean; error?: string; raw?: string; bars?: number[] }) => void>()
+const waiters = new Map<string, (r: { ok: boolean; error?: string; raw?: string; bars?: number[]; diag?: Record<string, unknown> }) => void>()
+/** 最近一次「把焦点交给这一列再发真实按键」的情况，写进诊断日志 */
+export const keyDiag = new Map<string, Record<string, unknown>>()
 const statusListeners = new Set<(id: string, s: AccountStatus) => void>()
 let seq = 0
 
@@ -68,7 +70,7 @@ export const registry = {
     })
   },
   /** 在已打开的账号页面里静默读取额度（打开设置 → 读进度条 → 关闭） */
-  readUsage(id: string, timeoutMs = 20_000): Promise<{ ok: boolean; raw?: string; bars?: number[]; error?: string }> {
+  readUsage(id: string, timeoutMs = 20_000): Promise<{ ok: boolean; raw?: string; bars?: number[]; error?: string; diag?: Record<string, unknown> }> {
     const e = entries.get(id)
     if (!e || !e.ready) return Promise.resolve({ ok: false, error: '页面未就绪' })
     const jobId = `u${Date.now()}-${++seq}`

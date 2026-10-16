@@ -179,7 +179,7 @@ function trustedKey(key: string, modifiers: string[]): Promise<void> {
 }
 
 async function readUsage(job: { id: string }): Promise<void> {
-  const reply = (r: { ok: boolean; raw?: string; bars?: number[]; error?: string }): void =>
+  const reply = (r: { ok: boolean; raw?: string; bars?: number[]; error?: string; diag?: Record<string, unknown> }): void =>
     ipcRenderer.sendToHost('muse:usage', { id: job.id, ...r })
   if (!rules) return reply({ ok: false, error: '规则未就绪' })
   const u = rules.usage
@@ -240,29 +240,11 @@ async function readUsage(job: { id: string }): Promise<void> {
   })
   mo.observe(document.body, { childList: true })
   let opened = false
-  const timing: Record<string, number> = {}
-  try {
-    const t0 = Date.now()
-    // 账号页面通常没有键盘焦点，页面内合成的 ⌘, 往往不生效：先发真实按键，合成按键只作兜底
-    await trustedKey(',', ['meta'])
-    let title: Element | null = (await waitFor(findTitle, 2000)) ?? null
-    if (!title) {
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: ',', code: 'Comma', metaKey: true, bubbles: true, cancelable: true }))
-      title = (await waitFor(findTitle, 2000)) ?? null
-    }
-    timing.open = Date.now() - t0
-    if (!title) return reply({ ok: false, error: '打不开设置' })
-    opened = true
-    const t1 = Date.now()
-    const r = await readBox(title)
-    timing.read = Date.now() - t1
-    console.log('[muse-panel] readUsage timing', JSON.stringify(timing))
-    reply(r ? { ok: true, ...r } : { ok: false, error: '额度数据未加载' })
-  } catch (e) {
-    reply({ ok: false, error: String(e) })
-  } finally {
-    // 无论成败都把设置关掉，再恢复可见和输入焦点
-    if (opened || findTitle()) {
+  const t0 = Date.now()
+  const diag: Record<string, unknown> = { pageFocusBefore: document.hasFocus(), visibility: document.visibilityState }
+  const cleanup = async (): Promise<void> => {
+    // 把（可能已打开的）设置静默关掉，再恢复可见和输入焦点
+    if (findTitle()) {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true }))
       if (!(await waitFor(() => !findTitle(), 1000))) {
         await trustedKey('Escape', [])
@@ -275,6 +257,36 @@ async function readUsage(job: { id: string }): Promise<void> {
     marked.forEach((n) => n.removeAttribute('data-muse-silent-node'))
     if (prevFocus && prevFocus !== document.body && document.contains(prevFocus)) prevFocus.focus({ preventScroll: true })
   }
+  try {
+    // 只发一次真实 ⌘,（合成按键在页面没焦点时无效；重复发送还可能把刚打开的设置又关掉）
+    await trustedKey(',', ['meta'])
+    diag.keySentMs = Date.now() - t0
+    diag.pageFocusAfterKey = document.hasFocus()
+    const title = (await waitFor(findTitle, 4000)) ?? null
+    if (!title) {
+      diag.result = 'not-opened'
+      diag.totalMs = Date.now() - t0
+      reply({ ok: false, error: '打不开设置', diag })
+      // 按键可能"迟到"：继续保持静默再观察 6 秒，迟到打开的设置也静默关掉，绝不让它露出来
+      const late = await waitFor(findTitle, 6000)
+      ipcRenderer.sendToHost('muse:usageLate', { id: job.id, lateOpenMs: late ? Date.now() - t0 : null })
+      await cleanup()
+      return
+    }
+    opened = true
+    diag.openMs = Date.now() - t0
+    const r = await readBox(title)
+    diag.readMs = Date.now() - t0
+    diag.result = r ? 'ok' : 'no-data'
+    diag.totalMs = Date.now() - t0
+    reply(r ? { ok: true, ...r, diag } : { ok: false, error: '额度数据未加载', diag })
+    await cleanup()
+  } catch (e) {
+    diag.result = 'exception'
+    reply({ ok: false, error: String(e), diag })
+    await cleanup()
+  }
+  void opened
 }
 
 ipcRenderer.on('muse:rules', (_e, r: Rules) => {

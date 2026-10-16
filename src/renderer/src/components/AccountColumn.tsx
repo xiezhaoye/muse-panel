@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { Account, AccountStatus, Rules } from '../../../shared/types'
-import { registry, WebviewEl } from '../webviewRegistry'
+import { keyDiag, registry, WebviewEl } from '../webviewRegistry'
 import { IconGear, IconGrip, IconMoon, IconPencil, IconRefresh, IconTrash, IconWork } from './icons'
 
 interface Props {
@@ -129,11 +129,16 @@ export function AccountColumn(p: Props): React.JSX.Element {
         wv.send('muse:rules', rulesRef.current)
       } else if (channel === 'muse:status') registry.setStatus(a.id, args[0] as AccountStatus)
       else if (channel === 'muse:injected' || channel === 'muse:usage') registry.resolveInjected(args[0] as { id: string; ok: boolean; error?: string })
-      else if (channel === 'muse:trustedKey') {
+      else if (channel === 'muse:usageLate') {
+        const l = args[0] as { lateOpenMs: number | null }
+        window.panel.logUsage({ account: a.name, event: 'late-check', lateOpenMs: l.lateOpenMs, note: l.lateOpenMs ? '设置迟到打开，已静默关闭' : '之后也没有打开' })
+      } else if (channel === 'muse:trustedKey') {
         const k = args[0] as { id: string; key: string; modifiers: ('meta' | 'shift')[] }
         // 先把键盘焦点交给这一列的页面，真实按键才会送进去；之后还原焦点
         const prev = document.activeElement as HTMLElement | null
+        const panelHadFocus = document.hasFocus()
         wv.focus()
+        keyDiag.set(a.id, { key: k.key, panelHadFocus, webviewFocused: document.activeElement === wv })
         void window.panel
           .sendKey(wv.getWebContentsId(), k.key, k.modifiers)
           .then(() => wv.send('muse:trustedKeyDone', k.id))

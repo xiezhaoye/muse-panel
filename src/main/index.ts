@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, session, shell, webContents } from 'electron'
+import { appendFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   configPath,
@@ -134,6 +135,14 @@ function registerIpc(): void {
   ipcMain.handle('config:path', () => configPath())
   ipcMain.handle('paths:musePreload', () => `file://${musePreloadPath()}`)
   ipcMain.handle('usage:refresh', (_e, id: string) => refreshUsage(id))
+  // 额度刷新诊断日志：~/Library/Logs/Muse Panel/usage.log（只记录时间、账号名和各步骤耗时，不含聊天内容）
+  ipcMain.on('usage:log', (_e, entry: Record<string, unknown>) => {
+    try {
+      const dir = app.getPath('logs')
+      mkdirSync(dir, { recursive: true })
+      appendFileSync(join(dir, 'usage.log'), `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`)
+    } catch {}
+  })
   ipcMain.handle('usage:save', (_e, id: string, raw: string, bars: number[]) => saveUsage(id, raw, bars))
   // 给某个账号页面发一次"真实"按键（页面里合成的按键不生效时的兜底）
   ipcMain.handle('webview:key', (_e, wcId: number, keyCode: string, modifiers: ('meta' | 'shift')[] = []) => {

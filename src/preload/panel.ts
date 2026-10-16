@@ -11,6 +11,7 @@ const api = {
   musePreload: () => ipcRenderer.invoke('paths:musePreload'),
   refreshUsage: (id: string) => ipcRenderer.invoke('usage:refresh', id),
   saveUsage: (id: string, raw: string, bars: number[]) => ipcRenderer.invoke('usage:save', id, raw, bars),
+  logUsage: (entry: Record<string, unknown>) => ipcRenderer.send('usage:log', entry),
   sendKey: (wcId: number, keyCode: string, modifiers: ('meta' | 'shift')[] = []) => ipcRenderer.invoke('webview:key', wcId, keyCode, modifiers),
   clearAccountData: (id: string) => ipcRenderer.invoke('account:clearData', id),
   confirm: (message: string) => ipcRenderer.invoke('dialog:confirm', message),
