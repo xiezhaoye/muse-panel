@@ -153,6 +153,8 @@ function registerIpc(): void {
 }
 
 app.whenReady().then(() => {
+  // 账号页面里用不上拼写检查，关掉省一点内存和 CPU
+  app.on('session-created', (ses) => ses.setSpellCheckerEnabled(false))
   const cfg = loadConfig()
   buildMenu()
   registerIpc()

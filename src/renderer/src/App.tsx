@@ -23,11 +23,14 @@ export function App(): React.JSX.Element {
       const [c, pre] = await Promise.all([window.panel.getConfig(), window.panel.musePreload()])
       setCfg(c)
       setMusePreload(pre)
-      // 全部常驻：当前组立即加载，其余组错峰加载（每 1.5 秒一个），避免启动时 10 个页面同时抢资源
+      // 启动时只加载当前组；其它组等切过去再加载。
+      // 若关闭了自动休眠（hibernateAfterMin = 0），则沿用"全部常驻"：其余组错峰加载
       const active = c.tabs.find((t) => t.id === c.window.activeTabId)?.accountIds ?? []
-      const rest = Object.keys(c.accounts).filter((id) => !active.includes(id))
       setMounted(new Set(active))
-      rest.forEach((id, i) => setTimeout(() => setMounted((m) => new Set(m).add(id)), 2000 + i * 1500))
+      if (!c.rules.perf.hibernateAfterMin) {
+        const rest = Object.keys(c.accounts).filter((id) => !active.includes(id))
+        rest.forEach((id, i) => setTimeout(() => setMounted((m) => new Set(m).add(id)), 2000 + i * 1500))
+      }
     })()
     const offs = [
       window.panel.on('config:changed', (c) => setCfg(c as AppConfig))
@@ -40,6 +43,44 @@ export function App(): React.JSX.Element {
   }, [])
 
   const ensureMounted = useCallback((id: string) => setMounted((m) => (m.has(id) ? m : new Set(m).add(id))), [])
+
+  // ---------- 非当前组自动休眠 ----------
+  // 切到某个组时加载它的账号；离开一个组超过 hibernateAfterMin 分钟，就卸载该组的页面释放内存。
+  // 切回来时重新加载（登录态保存在 partition 里，不会掉）。
+  const leftAt = useRef<Record<string, number>>({})
+  const activeTabId = cfg?.window.activeTabId ?? null
+  useEffect(() => {
+    const c = cfgRef.current
+    if (!c || !activeTabId) return
+    const ids = c.tabs.find((t) => t.id === activeTabId)?.accountIds ?? []
+    delete leftAt.current[activeTabId]
+    for (const t of c.tabs) if (t.id !== activeTabId && !(t.id in leftAt.current)) leftAt.current[t.id] = Date.now()
+    setMounted((m) => {
+      const n = new Set(m)
+      ids.forEach((id) => n.add(id))
+      return n
+    })
+  }, [activeTabId])
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const c = cfgRef.current
+      const min = c?.rules.perf.hibernateAfterMin ?? 0
+      if (!c || !min) return
+      const stale = new Set<string>()
+      for (const t of c.tabs) {
+        if (t.id === c.window.activeTabId) continue
+        const since = leftAt.current[t.id]
+        if (since && Date.now() - since > min * 60_000) t.accountIds.forEach((id) => stale.add(id))
+      }
+      if (!stale.size) return
+      setMounted((m) => {
+        if (![...stale].some((id) => m.has(id))) return m
+        return new Set([...m].filter((id) => !stale.has(id)))
+      })
+      setStatuses((s) => Object.fromEntries(Object.entries(s).filter(([id]) => !stale.has(id))))
+    }, 30_000)
+    return () => clearInterval(timer)
+  }, [])
 
   // ---------- 配置修改 ----------
   const update = useCallback((mut: (c: AppConfig) => void) => {

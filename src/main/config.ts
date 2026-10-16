@@ -30,6 +30,8 @@ function normalize(raw: Partial<AppConfig>): AppConfig {
     tabs: raw.tabs?.length ? raw.tabs : base.tabs,
     accounts: raw.accounts ?? {}
   }
+  // 迁移：旧版默认每 30 分钟抓一次用量，改为 60 分钟（用户手动改过的值保留）
+  if (raw.rules?.usage?.intervalMin === 30) cfg.rules.usage.intervalMin = DEFAULT_RULES.usage.intervalMin
   // 迁移：旧版默认选择器只认左侧 dock 的"设置"，窄屏下入口是右下角"更多"
   if (cfg.rules.usage.openMenuButton === 'button[aria-label="设置"]') cfg.rules.usage.openMenuButton = DEFAULT_RULES.usage.openMenuButton
   for (const a of Object.values(cfg.accounts)) {

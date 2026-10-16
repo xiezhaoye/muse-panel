@@ -51,12 +51,21 @@ export async function refreshUsage(accountId: string): Promise<Usage | null> {
   const acc = cfg.accounts[accountId]
   if (!acc || running.has(accountId)) return acc?.usage ?? null
   running.add(accountId)
+  // 离屏渲染 + 每秒 1 帧：页面照常渲染（设置弹窗需要渲染才会打开），但只在内存里画、不走 GPU 合成，
+  // 避免反复开关隐藏窗口让 GPU 进程内存越积越多
   const w = new BrowserWindow({
     show: false,
     width: 1280,
     height: 900,
-    webPreferences: { partition: `persist:muse-${accountId}`, backgroundThrottling: false, sandbox: true }
+    webPreferences: {
+      offscreen: true,
+      partition: `persist:muse-${accountId}`,
+      backgroundThrottling: false,
+      sandbox: true,
+      spellcheck: false
+    }
   })
+  w.webContents.setFrameRate(1)
   w.webContents.setAudioMuted(true)
   let result: { raw?: string; bars?: number[]; error?: string }
   try {

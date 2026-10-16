@@ -58,6 +58,7 @@ export interface Rules {
   layout: LayoutRule[]
   perf: {
     pauseLoopingVideos: boolean // 头像等循环播放的装饰视频，四路同时解码很耗 GPU
+    hibernateAfterMin: number // 离开某个组多少分钟后卸载该组的页面以释放内存；0 = 从不（全部常驻）
   }
 }
 
@@ -103,9 +104,9 @@ export const DEFAULT_RULES: Rules = {
     menuItemText: '设置',
     sectionTitle: '使用情况',
     progressBar: '[role="progressbar"]',
-    intervalMin: 30
+    intervalMin: 60
   },
-  perf: { pauseLoopingVideos: true },
+  perf: { pauseLoopingVideos: true, hibernateAfterMin: 10 },
   layout: [
     { selector: '[data-testid="app-download-dock-mark"]', action: 'hide', note: '下载 Muse 应用' },
     { selector: '[data-testid="hatch-invite-friends-button"]', action: 'hide', note: '邀请' },
