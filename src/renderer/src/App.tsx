@@ -192,6 +192,65 @@ export function App(): React.JSX.Element {
     void window.panel.setConfig(next)
   }, [])
 
+  // 组工作 / 组休眠：按组内顺序逐个切换账号的 sleeping，每一步都重新读最新配置
+  const groupBusy = useRef<Set<string>>(new Set())
+  const sleepGroup = useCallback(
+    async (tabId: string): Promise<void> => {
+      if (groupBusy.current.has(tabId)) return
+      const c0 = cfgRef.current
+      const t0 = c0?.tabs.find((x) => x.id === tabId)
+      if (!c0 || !t0) return
+      const targets = t0.accountIds.filter((id) => c0.accounts[id] && !c0.accounts[id].sleeping)
+      if (!targets.length) return
+      groupBusy.current.add(tabId)
+      try {
+        const ok = await window.panel.confirm(
+          `让组「${t0.name}」的 ${targets.length} 个账号休眠？\n页面会被关闭以释放内存，之后可在组右键菜单里选「组工作」恢复。`
+        )
+        if (!ok) return
+        for (const id of targets) {
+          const c = cfgRef.current
+          const t = c?.tabs.find((x) => x.id === tabId)
+          if (!c || !t || !t.accountIds.includes(id) || !c.accounts[id] || c.accounts[id].sleeping) continue
+          update((cfg) => {
+            const a = cfg.accounts[id]
+            if (a) a.sleeping = true
+          })
+          await new Promise((r) => setTimeout(r, 300))
+        }
+      } finally {
+        groupBusy.current.delete(tabId)
+      }
+    },
+    [update]
+  )
+  const wakeGroup = useCallback(
+    async (tabId: string): Promise<void> => {
+      if (groupBusy.current.has(tabId)) return
+      const c0 = cfgRef.current
+      const t0 = c0?.tabs.find((x) => x.id === tabId)
+      if (!c0 || !t0) return
+      const targets = t0.accountIds.filter((id) => c0.accounts[id]?.sleeping)
+      if (!targets.length) return
+      groupBusy.current.add(tabId)
+      try {
+        for (const id of targets) {
+          const c = cfgRef.current
+          const t = c?.tabs.find((x) => x.id === tabId)
+          if (!c || !t || !t.accountIds.includes(id) || !c.accounts[id] || !c.accounts[id].sleeping) continue
+          update((cfg) => {
+            const a = cfg.accounts[id]
+            if (a) a.sleeping = false
+          })
+          await new Promise((r) => setTimeout(r, 1500))
+        }
+      } finally {
+        groupBusy.current.delete(tabId)
+      }
+    },
+    [update]
+  )
+
   // 拖动中显示预览里的分组和组，否则显示配置里的
   const tabs = drag?.tabs ?? cfg?.tabs
   const activeTab = tabs?.find((t) => t.id === activeTabId) ?? tabs?.[0]
@@ -369,6 +428,8 @@ export function App(): React.JSX.Element {
             }
             onDelete={(id) => void deleteTab(id)}
             onRefreshGroup={refreshGroup}
+            onWakeGroup={(id) => void wakeGroup(id)}
+            onSleepGroup={(id) => void sleepGroup(id)}
           />
           {/* 添加账号：紧跟在「新建组」下方，左右居中 */}
           <div className="add-zone">

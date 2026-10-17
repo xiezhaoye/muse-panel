@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { TAB_COLORS, type Tab } from '../../../shared/types'
-import { IconPencil, IconRefresh, IconTrash } from './icons'
+import { IconMoon, IconPencil, IconRefresh, IconTrash, IconWork } from './icons'
 
 
 interface Props {
@@ -14,6 +14,8 @@ interface Props {
   onAdd: () => void
   onDelete: (id: string) => void
   onRefreshGroup: (id: string) => void
+  onWakeGroup: (id: string) => void
+  onSleepGroup: (id: string) => void
 }
 
 // 组既是可拖拽排序的项（id = tab:<id>），也是账号列的落点（把列头拖到组上 = 移组）
@@ -144,6 +146,32 @@ export function TabBar(p: Props): React.JSX.Element {
               <IconRefresh size={16} />
             </span>
             <span className="mi-main">刷新本组额度</span>
+          </button>
+          <button
+            className="menu-item"
+            onClick={() => {
+              const id = ctx.id
+              setCtx(null)
+              p.onWakeGroup(id)
+            }}
+          >
+            <span className="mi-icon">
+              <IconWork size={16} />
+            </span>
+            <span className="mi-main">组工作</span>
+          </button>
+          <button
+            className="menu-item"
+            onClick={() => {
+              const id = ctx.id
+              setCtx(null)
+              p.onSleepGroup(id)
+            }}
+          >
+            <span className="mi-icon">
+              <IconMoon size={16} />
+            </span>
+            <span className="mi-main">组休眠</span>
           </button>
           <button
             className="menu-item danger"
