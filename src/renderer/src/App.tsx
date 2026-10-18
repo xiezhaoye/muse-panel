@@ -7,7 +7,8 @@ import { emptyUsage, resetLabel } from '../../shared/types'
 import { AccountColumn, type UsageFlash } from './components/AccountColumn'
 import { TabBar } from './components/TabBar'
 import { registry } from './webviewRegistry'
-import { IconSidebar } from './components/icons'
+import { IconGear, IconSidebar } from './components/icons'
+import { SettingsDialog, type UpdateState } from './components/SettingsDialog'
 
 // 碰撞检测：列很宽、组名条很小，默认的矩形重叠算法几乎判不到组上。
 // 拖账号时：指针落在某个组名上 → 该组；否则取指针横向所在的那一列（列是满高的，只看 x）。
@@ -61,6 +62,24 @@ export function App(): React.JSX.Element {
   const [drag, setDrag] = useState<DragPreview | null>(null)
   const dragRef = useRef<DragPreview | null>(null)
   dragRef.current = drag
+  // ---------- 更新进度 ----------
+  const [updateState, setUpdateState] = useState<UpdateState>({ phase: 'idle' })
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const updateErrTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () =>
+      window.panel.on('update:progress', (p) => {
+        const msg = (p ?? {}) as { phase?: string; received?: number; total?: number; version?: string; message?: string }
+        if (updateErrTimer.current) clearTimeout(updateErrTimer.current)
+        if (msg.phase === 'downloading') setUpdateState({ phase: 'downloading', received: msg.received ?? 0, total: msg.total ?? 0 })
+        else if (msg.phase === 'ready') setUpdateState({ phase: 'ready', version: msg.version ?? '' })
+        else if (msg.phase === 'error') {
+          setUpdateState({ phase: 'error', message: msg.message ?? '更新失败' })
+          updateErrTimer.current = setTimeout(() => setUpdateState({ phase: 'idle' }), 5000)
+        }
+      }),
+    []
+  )
   const shownRef = useRef<string[]>([])
   const collision = useMemo(() => makeCollision(() => shownRef.current), [])
 
@@ -273,6 +292,8 @@ export function App(): React.JSX.Element {
 
   if (!cfg || !tabs || !activeTab) return <div className="loading">加载中…</div>
 
+  const updatePercent = updateState.phase === 'downloading' && updateState.total > 0 ? Math.min(100, Math.floor((updateState.received / updateState.total) * 100)) : null
+
   shownRef.current = activeTab.accountIds
   const accountsInTab = activeTab.accountIds.map((id) => cfg.accounts[id]).filter(Boolean)
   const collapsed = !!cfg.window.sidebarCollapsed
@@ -440,6 +461,9 @@ export function App(): React.JSX.Element {
             </button>
           </div>
           <div className="sidebar-foot">
+            <button className="collapse-btn" title="设置" aria-label="设置" onClick={() => setSettingsOpen(true)}>
+              <IconGear size={24} />
+            </button>
             <button className="collapse-btn" title="收拢分组栏" onClick={() => setCollapsed(true)}>
               <IconSidebar size={24} />
             </button>
@@ -476,6 +500,42 @@ export function App(): React.JSX.Element {
             </div>
           </SortableContext>
         </main>
+        <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} updateState={updateState} />
+        {updateState.phase !== 'idle' && (
+          <div
+            style={{
+              position: 'fixed',
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 50,
+              background: 'var(--panel, #fff)',
+              borderTop: '1px solid var(--line, #e2e2dd)',
+              padding: '5px 12px 7px',
+              fontSize: 12,
+              color: updateState.phase === 'error' ? 'var(--danger, #c93a3a)' : 'var(--muted, #8a8a84)',
+              pointerEvents: 'none'
+            }}
+          >
+            {updateState.phase === 'downloading' && (
+              <>
+                <div style={{ marginBottom: 4 }}>正在下载更新 {updatePercent == null ? '' : `${updatePercent}%`}</div>
+                <div style={{ height: 3, borderRadius: 2, background: 'var(--line, #e2e2dd)', overflow: 'hidden' }}>
+                  <div
+                    style={{
+                      height: '100%',
+                      width: `${updatePercent ?? 15}%`,
+                      background: 'var(--accent, #2f6fde)',
+                      transition: 'width 120ms linear'
+                    }}
+                  />
+                </div>
+              </>
+            )}
+            {updateState.phase === 'ready' && <div>更新已下载，重启以完成安装</div>}
+            {updateState.phase === 'error' && <div>更新失败：{updateState.message}</div>}
+          </div>
+        )}
       </div>
       <DragOverlay modifiers={[snapCenter]} dropAnimation={null}>
         {dragged && (
