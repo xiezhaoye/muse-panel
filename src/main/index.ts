@@ -11,6 +11,7 @@ import {
   updateConfig
 } from './config'
 import { initUsageQueue, refreshUsage, usageQueueState } from './usage'
+import { checkForUpdates, initUpdater, installUpdate, pendingUpdateVersion } from './updater'
 import type { AppConfig } from '../shared/types'
 
 // UA 归一化：去掉 Electron/x.y.z 和应用名，网站看到的就是普通 Chrome。
@@ -98,6 +99,12 @@ function buildMenu(): void {
     {
       label: '面板',
       submenu: [
+        // 下载完成后这里会变成「重启并安装更新（x.y.z）」，点击即安装
+        { label: '检查更新…', click: () => void checkForUpdates(true) },
+        ...(pendingUpdateVersion()
+          ? [{ label: `重启并安装更新（${pendingUpdateVersion()}）`, click: () => void installUpdate() }]
+          : []),
+        { type: 'separator' as const },
         { label: '打开配置文件', click: () => shell.openPath(configPath()) },
         { label: '在 Finder 中显示配置', click: () => shell.showItemInFolder(configPath()) },
         {
@@ -126,6 +133,9 @@ function send(channel: string, ...args: unknown[]): void {
   win?.webContents.send(channel, ...args)
 }
 
+// 更新器需要：给界面发进度、按待安装状态重建菜单、拿到窗口设进度条
+initUpdater({ send, rebuildMenu: buildMenu, getWindow: () => win })
+
 function registerIpc(): void {
   // 侧栏收拢时隐藏左上角红绿灯，避免压在第一列列头上
   ipcMain.on('window:trafficLights', (_e, visible: boolean) => win?.setWindowButtonVisibility(visible))
@@ -133,6 +143,11 @@ function registerIpc(): void {
   ipcMain.handle('config:set', (_e, next: AppConfig) => setConfig(next))
   ipcMain.handle('config:path', () => configPath())
   ipcMain.handle('paths:musePreload', () => `file://${musePreloadPath()}`)
+  // 设置窗口用：当前版本 / 检查更新 / 安装已下载的更新 / 查询是否有待安装版本
+  ipcMain.handle('app:version', () => app.getVersion())
+  ipcMain.handle('update:check', () => checkForUpdates(true))
+  ipcMain.handle('update:install', () => installUpdate())
+  ipcMain.handle('update:pending', () => pendingUpdateVersion())
   ipcMain.handle('usage:refresh', (_e, id: string) => refreshUsage(id))
   ipcMain.handle('usage:queueState', () => usageQueueState())
   ipcMain.handle('account:clearData', async (_e, id: string) => {
@@ -154,6 +169,7 @@ app.whenReady().then(() => {
   buildMenu()
   registerIpc()
   createWindow(cfg)
+  // 不在启动时自动检查更新，只有用户点「检查更新…」才查
 
   onConfigChange((c) => send('config:changed', c))
   // 额度只在用户点刷新时读取（串行队列），不做启动时或定时的抓取

@@ -1,13 +1,18 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { AppConfig, Usage } from '../shared/types'
 
-const CHANNELS = ['config:changed', 'usage:state'] as const
+const CHANNELS = ['config:changed', 'usage:state', 'update:progress'] as const
 type Channel = (typeof CHANNELS)[number]
 
 const api = {
   getConfig: (): Promise<AppConfig> => ipcRenderer.invoke('config:get'),
   setConfig: (c: unknown) => ipcRenderer.invoke('config:set', c),
   configPath: () => ipcRenderer.invoke('config:path'),
+  // 设置窗口
+  appVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
+  checkForUpdates: (): Promise<void> => ipcRenderer.invoke('update:check'),
+  installUpdate: (): Promise<void> => ipcRenderer.invoke('update:install'),
+  pendingUpdate: (): Promise<string | null> => ipcRenderer.invoke('update:pending'),
   musePreload: () => ipcRenderer.invoke('paths:musePreload'),
   refreshUsage: (id: string): Promise<{ usage: Usage | null; error: string | null; ms: number }> => ipcRenderer.invoke('usage:refresh', id),
   usageQueueState: (): Promise<Record<string, 'queued' | 'running' | 'idle'>> => ipcRenderer.invoke('usage:queueState'),
